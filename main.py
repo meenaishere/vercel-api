@@ -1,55 +1,40 @@
 from fastapi import FastAPI
 import requests
 from bs4 import BeautifulSoup
+import random
 import concurrent.futures
 
 app = FastAPI()
 
-TARGET_URL = "https://gotoproxy.com/free-proxy-list/"
-TEST_URL = "https://www.google.com"
-
 def check_proxy(proxy):
-    """Proxy ko check karne wala function"""
-    proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+    # Sirf wahi proxy rakhein jo 3 seconds ke andar response de rahi ho
     try:
-        # 3 seconds ka timeout rakha hai takki fast proxies milein
-        response = requests.get(TEST_URL, proxies=proxies, timeout=3)
-        if response.status_code == 200:
-            return proxy
+        proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+        r = requests.get("https://www.google.com", proxies=proxies, timeout=3)
+        return proxy if r.status_code == 200 else None
     except:
         return None
 
-@app.get("/get-indian-proxies")
-def get_proxies():
-    # 1. Scraping logic
+@app.get("/get-proxy")
+def get_random_indian_proxy():
+    # 1. Scrape from Gotoproxy
+    url = "https://gotoproxy.com/free-proxy-list/"
     headers = {'User-Agent': 'Mozilla/5.0'}
-    r = requests.get(TARGET_URL, headers=headers)
+    r = requests.get(url, headers=headers)
     soup = BeautifulSoup(r.text, 'html.parser')
     
-    found_proxies = []
-    # Table rows se data nikalna
-    rows = soup.find_all('tr')
-    for row in rows:
+    in_proxies = []
+    for row in soup.find_all('tr')[1:]:
         cols = row.find_all('td')
-        if len(cols) > 3:
-            ip = cols[0].text.strip()
-            port = cols[1].text.strip()
-            country = cols[3].text.strip()
-            
-            if "IN" in country or "India" in country:
-                found_proxies.append(f"{ip}:{port}")
+        if len(cols) > 3 and "IN" in cols[3].text:
+            in_proxies.append(f"{cols[0].text.strip()}:{cols[1].text.strip()}")
 
-    # 2. Testing Logic (Parallel Checking)
-    working_proxies = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        results = executor.map(check_proxy, found_proxies)
-        for res in results:
-            if res:
-                working_proxies.append(res)
+    # 2. Parallel Testing (Detection)
+    working = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+        results = executor.map(check_proxy, in_proxies[:30]) # Top 30 check karein
+        working = [res for res in results if res]
 
-    return {
-        "status": "success",
-        "total_found": len(found_proxies),
-        "working_count": len(working_proxies),
-        "proxies": working_proxies
-    }
+    if working:
+        return {"proxy": random.choice(working)} # Ek random working proxy dein
+    return {"error": "No working Indian proxy found at the moment"}
