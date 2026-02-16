@@ -6,20 +6,22 @@ import re
 
 app = FastAPI()
 
-# DEDICATED INDIAN SOURCES (Inse 100% Indian IPs hi milenge)
-INDIAN_SOURCES = [
-    "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=IN&ssl=all&anonymity=all",
-    "https://www.proxy-list.download/api/v1/get?type=http&country=IN",
-    "https://www.proxyscan.io/download?type=http&country=in"
+# HIDDEN & LESS FAMOUS SOURCES
+# Inme se kuch repositories daily commit hoti hain par log kam jaante hain
+HIDDEN_SOURCES = [
+    "https://raw.githubusercontent.com/rdavydov/proxy-list/main/proxies/http.txt",
+    "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+    "https://raw.githubusercontent.com/Zaeem20/free-proxy-list/master/http.txt",
+    "https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt",
+    "https://api.openproxylist.xyz/http.txt",
+    "https://alexa.lr22.com/proxylist.txt" # Less known automated list
 ]
 
 def check_proxy(proxy):
-    """Proxy Testing Logic"""
     try:
         proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
-        # Telegram aur Leeching ke liye Google check sabse best hai
-        # Timeout ko 5 sec kiya hai taaki thodi slow proxies bhi accept ho jayein
-        r = requests.get("https://www.google.com", proxies=proxies, timeout=5)
+        # India-specific check ke liye hum Google India use karenge
+        r = requests.get("https://www.google.co.in", proxies=proxies, timeout=5)
         if r.status_code == 200:
             return proxy
     except:
@@ -27,48 +29,46 @@ def check_proxy(proxy):
 
 @app.get("/")
 def get_proxy():
-    all_proxies = []
+    raw_list = []
     
-    # 1. Indian Sources se data uthana
-    for url in INDIAN_SOURCES:
+    # 1. Fetching from hidden sources
+    for url in HIDDEN_SOURCES:
         try:
-            # Headers add kiye hain taaki source block na kare
             headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(url, headers=headers, timeout=10)
+            r = requests.get(url, headers=headers, timeout=8)
             if r.status_code == 200:
-                # IPs extract karna
-                proxies = re.findall(r'\d+\.\d+\.\d+\.\d+:\d+', r.text)
-                all_proxies.extend(proxies)
+                # Sirf IP:Port pattern extract karna
+                ips = re.findall(r'\d+\.\d+\.\d+\.\d+:\d+', r.text)
+                raw_list.extend(ips)
         except:
             continue
 
-    if not all_proxies:
-        return {"error": "Sources se koi IP nahi mili. Kuch der baad try karein."}
+    if not raw_list:
+        return {"error": "Hidden sources se koi IP nahi mili."}
 
-    # Duplicate hatayein aur Shuffle karein
-    all_proxies = list(set(all_proxies))
-    random.shuffle(all_proxies)
+    # Duplicate hatayein
+    raw_list = list(set(raw_list))
+    random.shuffle(raw_list)
 
-    # 2. Parallel Detection (Filtering)
+    # 2. Advanced Detection Logic
+    # Hum 60 proxies test karenge taaki Indian IP milne ka chance badh jaye
     working = []
-    # Zyada proxies test karenge taaki "No working proxy" error na aaye
-    test_pool = all_proxies[:100] 
+    test_pool = raw_list[:60]
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
         results = executor.map(check_proxy, test_pool)
         working = [res for res in results if res]
 
-    # 3. Final Response
+    # 3. Response
     if working:
         return {
             "status": "success",
             "proxy": random.choice(working),
-            "total_indian_found": len(all_proxies),
-            "working_now": len(working)
+            "checked": len(test_pool),
+            "working": len(working)
         }
     
     return {
-        "error": "Proxies mili hain par koi bhi working nahi hai.",
-        "total_found": len(all_proxies),
-        "suggestion": "Refresh karein ya kuch der baad try karein."
+        "error": "Proxies mili hain par koi Indian working proxy nahi mili.",
+        "tip": "Refresh karein, sources list update ho rahi hogi."
     }
