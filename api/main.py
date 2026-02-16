@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import random
 import concurrent.futures
 
+# Ye line sabse important hai Vercel ke liye
 app = FastAPI()
 
 def check_proxy(proxy):
