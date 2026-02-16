@@ -6,73 +6,69 @@ import re
 
 app = FastAPI()
 
-# Direct GitHub Sources (TheSpeedX & Monosans) jo Gotoproxy bhi use karta hai
-SOURCES = [
-    "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt",
-    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
-    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies_anonymous/http.txt"
+# DEDICATED INDIAN SOURCES (Inse 100% Indian IPs hi milenge)
+INDIAN_SOURCES = [
+    "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=IN&ssl=all&anonymity=all",
+    "https://www.proxy-list.download/api/v1/get?type=http&country=IN",
+    "https://www.proxyscan.io/download?type=http&country=in"
 ]
 
-# Indian IP ranges ko identify karne ke liye basic check (Optional but helpful)
-# Note: GitHub raw files mein country filter nahi hota, isliye hum testing par depend karenge
-def is_indian_proxy(proxy):
-    # Free sources aksar mix proxies dete hain. 
-    # Agar aapko specifically Indian hi chahiye toh testing ke waqt 
-    # hum target website se confirm kar sakte hain.
-    return True 
-
 def check_proxy(proxy):
-    """Proxy ko check karne wala function"""
+    """Proxy Testing Logic"""
     try:
-        proxies = {
-            "http": f"http://{proxy}",
-            "https": f"http://{proxy}"
-        }
-        # Timeout 3 seconds rakha hai taaki bot fast rahe
-        # Google.co.in use karne se Indian proxy confirm hone ke chance badh jate hain
-        r = requests.get("https://www.google.co.in", proxies=proxies, timeout=3)
+        proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+        # Telegram aur Leeching ke liye Google check sabse best hai
+        # Timeout ko 5 sec kiya hai taaki thodi slow proxies bhi accept ho jayein
+        r = requests.get("https://www.google.com", proxies=proxies, timeout=5)
         if r.status_code == 200:
             return proxy
     except:
         return None
 
 @app.get("/")
-def get_working_proxy():
+def get_proxy():
     all_proxies = []
     
-    # 1. Sabhi GitHub sources se data fetch karna
-    for url in SOURCES:
+    # 1. Indian Sources se data uthana
+    for url in INDIAN_SOURCES:
         try:
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                # Regex se IP:Port extract karna
-                found = re.findall(r'\d+\.\d+\.\d+\.\d+:\d+', response.text)
-                all_proxies.extend(found)
+            # Headers add kiye hain taaki source block na kare
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = requests.get(url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                # IPs extract karna
+                proxies = re.findall(r'\d+\.\d+\.\d+\.\d+:\d+', r.text)
+                all_proxies.extend(proxies)
         except:
             continue
 
     if not all_proxies:
-        return {"error": "No proxies found from sources."}
+        return {"error": "Sources se koi IP nahi mili. Kuch der baad try karein."}
 
-    # Duplicate hatayein aur shuffle karein
+    # Duplicate hatayein aur Shuffle karein
     all_proxies = list(set(all_proxies))
     random.shuffle(all_proxies)
 
-    # 2. Testing (Detection Logic)
-    # Hum pehli 50 proxies check karenge taaki API fast response de
+    # 2. Parallel Detection (Filtering)
     working = []
-    test_pool = all_proxies[:50]
+    # Zyada proxies test karenge taaki "No working proxy" error na aaye
+    test_pool = all_proxies[:100] 
     
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
         results = executor.map(check_proxy, test_pool)
         working = [res for res in results if res]
 
-    # 3. Result Return karna
+    # 3. Final Response
     if working:
         return {
             "status": "success",
             "proxy": random.choice(working),
-            "info": f"Tested {len(test_pool)} proxies, found {len(working)} working."
+            "total_indian_found": len(all_proxies),
+            "working_now": len(working)
         }
     
-    return {"error": "No working proxy detected at this moment. Please refresh."}
+    return {
+        "error": "Proxies mili hain par koi bhi working nahi hai.",
+        "total_found": len(all_proxies),
+        "suggestion": "Refresh karein ya kuch der baad try karein."
+    }
